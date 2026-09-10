@@ -341,6 +341,24 @@ MODULE_PARM_DESC(macaddr, "FEC Ethernet MAC address");
 
 static int mii_cnt;
 
+static void adv_force_eth_name_by_alias(struct device *dev,
+					struct device_node *np,
+					struct net_device *ndev)
+{
+	int id;
+
+	/* DT: /aliases { ethernet0 = &fec; ethernet1 = &eqos; }; */
+	id = of_alias_get_id(np, "ethernet");
+	if (id < 0)
+		return;
+
+	if (id == 0 || id == 1) {
+		snprintf(ndev->name, IFNAMSIZ, "eth%d", id);
+		dev_info(dev, "force netdev name to %s by DT alias ethernet%d\n",
+			 ndev->name, id);
+	}
+}
+
 static struct bufdesc *fec_enet_get_nextdesc(struct bufdesc *bdp,
 					     struct bufdesc_prop *bd)
 {
@@ -4148,6 +4166,10 @@ fec_probe(struct platform_device *pdev)
 	pinctrl_pm_select_sleep_state(&pdev->dev);
 
 	ndev->max_mtu = PKT_MAXBUF_SIZE - ETH_HLEN - ETH_FCS_LEN;
+
+#if defined(CONFIG_ADV_BOARD)
+	adv_force_eth_name_by_alias(&pdev->dev, pdev->dev.of_node, ndev);
+#endif
 
 	ret = register_netdev(ndev);
 	if (ret)
