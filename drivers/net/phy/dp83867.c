@@ -26,6 +26,9 @@
 #define MII_DP83867_MICR	0x12
 #define MII_DP83867_ISR		0x13
 #define DP83867_CFG2		0x14
+/* ECU-150v2 port: 6.1.155 has no LEDCR1 definition; added for the
+ * LED configuration write below (TI DP83867 LED_CFG1, MDIO reg 0x18). */
+#define DP83867_LEDCR1		0x18
 #define DP83867_CFG3		0x1e
 #define DP83867_CTRL		0x1f
 
@@ -786,6 +789,11 @@ static int dp83867_config_init(struct phy_device *phydev)
 		ret = phy_write(phydev, MII_DP83867_PHYCTRL, val);
 		if (ret)
 			return ret;
+#if defined(CONFIG_ADV_BOARD)
+		ret = phy_write(phydev, DP83867_LEDCR1, 0x6B58);
+		if (ret)
+			return ret;
+#endif
 
 		/* If rgmii mode with no internal delay is selected, we do NOT use
 		 * aligned mode as one might expect.  Instead we use the PHY's default
