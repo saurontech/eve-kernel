@@ -1,0 +1,486 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Advantech ECU-150v2 (i.MX8M Plus)
+ *
+ * Ported to eve-kernel v6.1.155 from
+ *   meta-ecu-150v2/recipes-kernel/linux/linux-imx/
+ *     0001-Port-ECU-150v2-to-linux-imx-6.12-on-deviceTree.patch
+ *
+ * The upstream layer patches imx8mp-evk.dts in place, which breaks every
+ * NXP EVK variant DTB that #include's it. This file instead includes the
+ * EVK board file unmodified and overrides only what differs, so both boards
+ * can be built from one tree.
+ *
+ * The source patch targets NXP's downstream linux-imx 6.12 EVK DTS, which
+ * carries many nodes that do not exist in the mainline 6.1 EVK DTS. Those
+ * removal hunks are therefore no-ops here and are not reproduced.
+ */
+
+/dts-v1/;
+
+#include "imx8mp-evk.dts"
+
+/ {
+	model = "Advantech i.MX8MPlus ECU-150v2 board";
+	compatible = "advantech,imx8mp-ecu150v2", "fsl,imx8mp-evk", "fsl,imx8mp";
+
+	aliases {
+		mmc0 = &usdhc3;
+		mmc1 = &usdhc2;
+		/*
+		 * Battery-backed S-35390A becomes rtc0 (hctosys source);
+		 * the SoC SNVS RTC has no battery and is demoted to rtc1.
+		 */
+		rtc0 = &s35390a;
+		rtc1 = &snvs_rtc;
+	};
+
+	clocks {
+		clk24M: can_clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <24000000>;
+		};
+	};
+
+	adv_board {
+		compatible = "custom,adv-board";
+		board_name = "ECU150V2";
+	};
+};
+
+/* The EVK leds node carries no label, so it is reached by path. */
+&{/gpio-leds} {
+	pinctrl-0 = <&pinctrl_ecu_gpios>;
+
+	/delete-node/ status;
+
+	led0: led-0 {
+		label = "PL1";
+		gpios = <&gpio1 13 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+
+	led1: led-1 {
+		label = "PL2";
+		gpios = <&gpio1 14 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+
+	led2: led-2 {
+		label = "PL3";
+		gpios = <&gpio1 15 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+
+	com-mode-sel-0 {
+		label = "com_mode_sel_0";
+		gpios = <&gpio5 27 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+
+	com-mode-sel-1 {
+		label = "com_mode_sel_1";
+		gpios = <&gpio5 9 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+
+	m2-slot-b-key-power {
+		label = "SLOT_POWER_2_1_USB_1_1_USB";
+		gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;
+		default-state = "on";
+	};
+
+	m2-slot-b-key-reset {
+		label = "SLOT_RESET_2_1_USB_1_1_USB";
+		gpios = <&gpio4 29 GPIO_ACTIVE_HIGH>;
+		default-state = "off";
+	};
+};
+
+/*
+ * Thermal trip points. The source patch edits imx8mp.dtsi directly, which
+ * would also change EPC-R3720 and every other i.MX8MP board in this tree;
+ * the labelled trip nodes are overridden here instead.
+ */
+&cpu_alert0 {
+	temperature = <100000>;
+};
+
+&cpu_crit0 {
+	temperature = <100000>;
+};
+
+&soc_alert0 {
+	temperature = <100000>;
+};
+
+&soc_crit0 {
+	temperature = <100000>;
+};
+
+&ecspi2 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	fsl,spi-num-chipselects = <1>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_ecspi2 &pinctrl_ecspi2_cs>;
+	cs-gpios = <&gpio5 13 GPIO_ACTIVE_LOW>;
+	status = "okay";
+
+	fm25@0 {
+		compatible = "cypress,fm25";
+		reg = <0>;
+		spi-max-frequency = <48000000>;
+		status = "disabled";
+	};
+};
+
+&eqos {
+	nvmem-cells = <&macaddr0>;
+	nvmem-cell-names = "mac-address";
+};
+
+&fec {
+	nvmem-cells = <&macaddr1>;
+	nvmem-cell-names = "mac-address";
+};
+
+&i2c2 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c2>;
+	status = "okay";
+
+	/*
+	 * Other Advantech product lines name this node st33htpi, which does not
+	 * match the part actually fitted here.
+	 */
+	tpm: tpm@2e {
+		compatible = "infineon,slb9673", "tcg,tpm-tis-i2c";
+		reg = <0x2e>;
+	};
+
+	s35390a: s35390a@30 {
+		compatible = "sii,s35390a";
+		reg = <0x30>;
+	};
+
+	adv-wdt-i2c@29 {
+		compatible = "adv-wdt-i2c";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_wdt430>;
+		reg = <0x29>;
+		wdt-ping-gpios = <&gpio4 20 GPIO_ACTIVE_HIGH>;
+		wdt-en-gpios   = <&gpio4 19 GPIO_ACTIVE_HIGH>;
+	};
+
+	eeprom@50 {
+		compatible = "atmel,24c02";
+		reg = <0x50>;
+		pagesize = <16>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		/*
+		 * 6.1 has no nvmem "fixed-layout" binding (added in 6.5), so the
+		 * cells are direct children of the provider, as the pre-6.5 core
+		 * expects.
+		 */
+		macaddr0: mac-address@0 {
+			reg = <0x00 0x06>;
+		};
+
+		macaddr1: mac-address@6 {
+			reg = <0x06 0x06>;
+		};
+	};
+};
+
+&i2c6 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c6>;
+	status = "okay";
+};
+
+/*
+ * PCIe pad ownership.
+ *
+ * The EVK drives MPCIE_3V3 from GPIO2_IO06 (SD1_DATA4) via reg_pcie0, and fixes
+ * that pad in pcie0reggrp. ECU-150v2 wires MPCIE_3V3 permanently on and uses the
+ * same pad as the PCIe host-wake input instead, so the source patch strips the
+ * regulator's GPIO and pinctrl and marks it always-on. Without that, reg_pcie0
+ * and &pcie both claim GPIO2_IO06 and the pad is muxed twice.
+ */
+&reg_pcie0 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ gpio;
+	/delete-property/ enable-active-high;
+	regulator-always-on;
+};
+
+/*
+ * Both ECU-150v2 PCIe control pads live in pcie0grp: GPIO1_IO10 (reset, output)
+ * and SD1_DATA4/GPIO2_IO06 (host wake, input pull-up). The EVK's SD1_DATA5 pad
+ * is the regulator enable it no longer needs. Replacing fsl,pins wholesale also
+ * leaves pcie0reggrp unreferenced, so its SD1_DATA4 entry is never applied.
+ */
+&pinctrl_pcie0 {
+	fsl,pins = <
+		MX8MP_IOMUXC_I2C4_SCL__PCIE_CLKREQ_B	0x60	/* open drain, pull up */
+		MX8MP_IOMUXC_GPIO1_IO10__GPIO1_IO10	0x40	/* reset */
+		MX8MP_IOMUXC_SD1_DATA4__GPIO2_IO06	0x1c4	/* host wake */
+	>;
+};
+
+&pcie {
+	reset-gpio = <&gpio1 10 GPIO_ACTIVE_LOW>;
+	host-wake-gpio = <&gpio2 6 GPIO_ACTIVE_LOW>;
+};
+
+/*
+ * USB.
+ *
+ * The EVK claims GPIO1_IO14 as the USB1 VBUS enable (pinctrl_usb1_vbus, applied
+ * from usb_dwc3_1). On ECU-150v2 that pad is an LED (see gpio-leds and
+ * pinctrl_gpio_led above), so the source patch drops pinctrl_usb1_vbus entirely
+ * -- VBUS is not GPIO-controlled here. Keeping the EVK reference makes
+ * usb_dwc3_1 and gpio-leds fight over pin 19 and the whole dwc3 pinctrl state is
+ * rejected, which is why no xHCI controller registers at all.
+ */
+&usb_dwc3_1 {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+};
+
+/*
+ * The mainline EVK DTS never enables the first USB controller, so EVE only ever
+ * saw one. The source patch runs it as a host (its downstream base wired it to a
+ * Type-C DRD switch that ECU-150v2 does not have), matching the reference BSP,
+ * which registers xHCI at both 0x38100000 and 0x38200000.
+ */
+&usb3_phy0 {
+	status = "okay";
+};
+
+&usb3_0 {
+	status = "okay";
+};
+
+&usb_dwc3_0 {
+	dr_mode = "host";
+	status = "okay";
+};
+
+/*
+ * EVK-only I/O expander. ECU-150v2 has no TCA6416 at i2c3 0x20 -- the reference
+ * BSP does not instantiate one, and on EVE the driver probes and then fails its
+ * first register write. Nothing references &pca6416, so disabling it is safe.
+ */
+&pca6416 {
+	status = "disabled";
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart1 &pinctrl_uart1_rts>;
+	linux,rs485-enabled-at-boot-time;
+	rts-gpios = <&gpio5 26 GPIO_ACTIVE_HIGH>;
+	rs485-rts-active-high;
+	rs485-rx-during-tx;
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	status = "okay";
+};
+
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3 &pinctrl_uart3_rts>;
+	assigned-clocks = <&clk IMX8MP_CLK_UART3>;
+	assigned-clock-parents = <&clk IMX8MP_SYS_PLL1_80M>;
+	linux,rs485-enabled-at-boot-time;
+	rts-gpios = <&gpio5 8 GPIO_ACTIVE_HIGH>;
+	rs485-rts-active-high;
+	rs485-rx-during-tx;
+	/delete-property/ dmas;
+	/delete-property/ dma-names;
+	status = "okay";
+};
+
+&uart4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart4>;
+	assigned-clocks = <&clk IMX8MP_CLK_UART4>;
+	assigned-clock-parents = <&clk IMX8MP_SYS_PLL1_80M>;
+	uart-has-rtscts;
+	status = "okay";
+};
+
+/*
+ * HDMI. This board drives its HDMI connector from the i.MX8MP's native HDMI TX
+ * (LCDIF3 -> HDMI-PAI/PVI -> Samsung HDMI PHY -> connector), not from the EVK's
+ * MIPI-DSI -> ADV7535 bridge, which is not fitted here -- U-Boot's per-boot
+ * "adv7535@3d: Can't find cec device" / "probe video device failed, ret -19"
+ * comes from that missing chip and is unrelated to the Linux side.
+ *
+ * Values are taken verbatim from this board's own Yocto BSP device tree
+ * (linux-imx 6.12, imx8mp-evk.dts:554-579 with the ECU-150v2 patch applied,
+ * model "NXP i.MX8MPlus ECU150V2 board"), which is the only display
+ * configuration verified on this hardware. imx8mp-rsb3720-a1.dts:510-533 in
+ * this tree does the same for the EPC-R3720 and corroborates the wiring, but
+ * its pad values and tx_vl_* PHY tweaks are specific to that board.
+ *
+ * irqsteer_hdmi is required here even though the BSP device tree never mentions
+ * it: both lcdif3 (imx8mp.dtsi:1991) and hdmi (:2007) take their interrupts
+ * through it, and this tree declares it status = "disabled" (:1964) whereas
+ * NXP's 6.12 dtsi leaves it enabled. Without it both drivers sit in
+ * /sys/kernel/debug/devices_deferred with "IRQ index 0 not found" (-EPROBE_DEFER)
+ * and no DRM device is ever created. imx8mp-rsb3720-a1.dts:494 does the same.
+ *
+ * Deliberately NOT enabled:
+ *   hdmi_blk_ctrl  imx8mp.dtsi:1450 declares it without a "status" property,
+ *                  so it is already enabled; setting it again is redundant.
+ *   lcdif1/lcdif2  they feed mipi_dsi and ldb respectively, and the BSP
+ *                  deletes both bridges, so enabling them gains nothing.
+ *
+ * Needs CONFIG_IMX8MP_HDMI_PAVI, CONFIG_DRM_IMX_LCDIFV3 and
+ * CONFIG_DRM_FBDEV_EMULATION in eve_defconfig. The last one is easy to miss:
+ * without it DRM comes up but there is no /dev/fb0, so the console=tty0 in
+ * EVE's cmdline stays on the dummy console and the screen remains blank.
+ */
+&irqsteer_hdmi {
+	status = "okay";
+};
+
+&hdmi_pavi {
+	status = "okay";
+};
+
+&hdmi {
+	status = "okay";
+};
+
+&hdmiphy {
+	status = "okay";
+};
+
+&lcdif3 {
+	status = "okay";
+
+	thres-low  = <1 2>;		/* (FIFO * 1 / 2) */
+	thres-high = <3 4>;		/* (FIFO * 3 / 4) */
+};
+
+&iomuxc {
+	/*
+	 * HDMI DDC/HPD/CEC are claimed by the pinctrl controller itself (a "hog"
+	 * group) because &hdmi carries no pinctrl-0 of its own. Neither
+	 * imx8mp.dtsi nor imx8mp-evk.dts sets pinctrl-names/pinctrl-0 on
+	 * &iomuxc, so declaring them here does not override anything.
+	 * Pad values from the Yocto BSP device tree (imx8mp-evk.dts:836-843).
+	 */
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_hog>;
+
+	pinctrl_hog: hoggrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_HDMI_DDC_SCL__HDMIMIX_HDMI_SCL	0x400001c2
+			MX8MP_IOMUXC_HDMI_DDC_SDA__HDMIMIX_HDMI_SDA	0x400001c2
+			MX8MP_IOMUXC_HDMI_HPD__HDMIMIX_HDMI_HPD		0x40000010
+			MX8MP_IOMUXC_HDMI_CEC__HDMIMIX_HDMI_CEC		0x40000010
+		>;
+	};
+
+	pinctrl_ecu_gpios: ecugpiosgrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_GPIO1_IO13__GPIO1_IO13	0x140
+			MX8MP_IOMUXC_GPIO1_IO14__GPIO1_IO14	0x140
+			MX8MP_IOMUXC_GPIO1_IO15__GPIO1_IO15	0x140
+			MX8MP_IOMUXC_UART3_TXD__GPIO5_IO27	0x140
+			MX8MP_IOMUXC_ECSPI1_SS0__GPIO5_IO09	0x140
+			MX8MP_IOMUXC_GPIO1_IO05__GPIO1_IO05	0x140	/* m.2 b-key power enable */
+			MX8MP_IOMUXC_SAI3_RXC__GPIO4_IO29	0x140	/* m.2 b-key reset */
+			MX8MP_IOMUXC_GPIO1_IO07__GPIO1_IO07	0x140	/* m.2 b-key reset pcie */
+			MX8MP_IOMUXC_GPIO1_IO09__GPIO1_IO09	0x140	/* m.2 e-key power enable */
+			MX8MP_IOMUXC_GPIO1_IO06__GPIO1_IO06	0x140
+			MX8MP_IOMUXC_NAND_DATA00__GPIO3_IO06	0x140
+			MX8MP_IOMUXC_NAND_DATA01__GPIO3_IO07	0x140
+		>;
+	};
+
+	/* Not carried by the source patch: I2C2 was already muxed in the
+	 * downstream EVK DTS. Standard i.MX8MP I2C2 pads. */
+	pinctrl_i2c2: i2c2grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_I2C2_SCL__I2C2_SCL		0x400001c2
+			MX8MP_IOMUXC_I2C2_SDA__I2C2_SDA		0x400001c2
+		>;
+	};
+
+	pinctrl_i2c6: i2c6grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_SAI5_RXC__I2C6_SDA		0x400001c2
+			MX8MP_IOMUXC_SAI5_RXFS__I2C6_SCL	0x400001c2
+		>;
+	};
+
+	/* Not carried by the source patch; pads implied by cs-gpios = <&gpio5 13>. */
+	pinctrl_ecspi2: ecspi2grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_ECSPI2_SCLK__ECSPI2_SCLK	0x82
+			MX8MP_IOMUXC_ECSPI2_MOSI__ECSPI2_MOSI	0x82
+			MX8MP_IOMUXC_ECSPI2_MISO__ECSPI2_MISO	0x82
+		>;
+	};
+
+	pinctrl_ecspi2_cs: ecspi2csgrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_ECSPI2_SS0__GPIO5_IO13	0x40000
+		>;
+	};
+
+	/* Not carried by the source patch; standard UART1 pads. */
+	pinctrl_uart1: uart1grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_UART1_RXD__UART1_DCE_RX	0x140
+			MX8MP_IOMUXC_UART1_TXD__UART1_DCE_TX	0x140
+		>;
+	};
+
+	pinctrl_uart1_rts: uart1rtsgrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_UART3_RXD__GPIO5_IO26	0x19
+		>;
+	};
+
+	pinctrl_uart3: uart3grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_ECSPI1_SCLK__UART3_DCE_RX	0x140
+			MX8MP_IOMUXC_ECSPI1_MOSI__UART3_DCE_TX	0x140
+		>;
+	};
+
+	pinctrl_uart3_rts: uart3rtsgrp {
+		fsl,pins = <
+			MX8MP_IOMUXC_ECSPI1_MISO__GPIO5_IO08	0x19
+		>;
+	};
+
+	pinctrl_uart4: uart4grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_UART4_RXD__UART4_DCE_RX	0x140
+			MX8MP_IOMUXC_UART4_TXD__UART4_DCE_TX	0x140
+			MX8MP_IOMUXC_NAND_DATA02__UART4_DTE_RTS	0x140
+			MX8MP_IOMUXC_NAND_DATA03__UART4_DTE_CTS	0x140
+		>;
+	};
+
+	pinctrl_wdt430: wdt430grp {
+		fsl,pins = <
+			MX8MP_IOMUXC_SAI1_MCLK__GPIO4_IO20	0x140	/* WDI */
+			MX8MP_IOMUXC_SAI1_TXD7__GPIO4_IO19	0x140	/* WDT EN */
+		>;
+	};
+};

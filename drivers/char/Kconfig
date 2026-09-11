@@ -249,6 +249,12 @@ config SONYPI
 
 source "drivers/char/pcmcia/Kconfig"
 
+config ADV_BOARD
+	tristate "Advantech board driver"
+	default n
+	help
+	  Advantech board driver
+
 config MWAVE
 	tristate "ACP Modem (Mwave) support"
 	depends on X86 && TTY

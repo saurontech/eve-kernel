@@ -7102,6 +7102,24 @@ void stmmac_fpe_handshake(struct stmmac_priv *priv, bool enable)
 	}
 }
 
+static void adv_force_eth_name_by_alias(struct device *dev,
+					struct device_node *np,
+					struct net_device *ndev)
+{
+	int id;
+
+	/* DT: /aliases { ethernet0 = &fec; ethernet1 = &eqos; }; */
+	id = of_alias_get_id(np, "ethernet");
+	if (id < 0)
+		return;
+
+	if (id == 0 || id == 1) {
+		snprintf(ndev->name, IFNAMSIZ, "eth%d", id);
+		dev_info(dev, "force netdev name to %s by DT alias ethernet%d\n",
+			 ndev->name, id);
+	}
+}
+
 /**
  * stmmac_dvr_probe
  * @device: device pointer
@@ -7366,6 +7384,10 @@ int stmmac_dvr_probe(struct device *device,
 		netdev_err(ndev, "failed to setup phy (%d)\n", ret);
 		goto error_phy_setup;
 	}
+
+#if defined(CONFIG_ADV_BOARD)
+	adv_force_eth_name_by_alias(device, device->of_node, ndev);
+#endif
 
 	ret = register_netdev(ndev);
 	if (ret) {

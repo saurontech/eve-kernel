@@ -2215,4 +2215,10 @@ config KEEMBAY_WATCHDOG
 	  To compile this driver as a module, choose M here: the
 	  module will be called keembay_wdt.
 
+config ADVMSP430_WATCHDOG
+	tristate "Advantech MSP430 Watchdog"
+	select WATCHDOG_CORE
+	help
+	  Say Y here to support for the Advantech MSP430 Watchdog.
+
 endif # WATCHDOG
